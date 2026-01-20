@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Human Body Simulator</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', sans-serif; background: #0a0a0a; color: #fff; overflow: hidden; }
+#app { display: flex; height: 100vh; }
+#controls { width: 280px; background: #1a1a1a; padding: 20px; overflow-y: auto; border-right: 2px solid #333; }
+#canvas-container { flex: 1; position: relative; }
+canvas { display: block; background: #050505; }
+h2 { font-size: 14px; color: #888; margin: 20px 0 10px; text-transform: uppercase; letter-spacing: 1px; }
+.control { margin-bottom: 15px; }
+label { display: block; font-size: 12px; margin-bottom: 5px; color: #aaa; }
+input[type="range"] { width: 100%; height: 6px; background: #333; outline: none; border-radius: 3px; }
+input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; background: #4a9eff; border-radius: 50%; cursor: pointer; }
+input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; background: #4a9eff; border-radius: 50%; cursor: pointer; border: none; }
+.value { display: inline-block; float: right; font-size: 11px; color: #4a9eff; font-weight: 600; }
+button { background: #4a9eff; color: #fff; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 12px; margin-top: 10px; width: 100%; }
+button:hover { background: #3a8eef; }
+#stats { position: absolute; top: 20px; right: 20px; background: rgba(26,26,26,0.9); padding: 15px; border-radius: 8px; font-size: 11px; min-width: 150px; }
+#stats div { margin: 5px 0; }
+.stat-label { color: #888; }
+.stat-value { color: #4a9eff; float: right; }
+</style>
+</head>
+<body>
+<div id="app">
+<div id="controls">
+<h2>Body Parameters</h2>
+<div class="control">
+<label>Temperature <span class="value" id="temp-val">37°C</span></label>
+<input type="range" id="temp" min="35" max="42" value="37" step="0.1">
+</div>
+<div class="control">
+<label>Body Fat <span class="value" id="fat-val">15%</span></label>
+<input type="range" id="fat" min="5" max="40" value="15" step="1">
+</div>
+<div class="control">
+<label>Hydration <span class="value" id="hydro-val">70%</span></label>
+<input type="range" id="hydro" min="40" max="90" value="70" step="1">
+</div>
+<h2>Nutrition Intake</h2>
+<div class="control">
+<label>Sugar Level <span class="value" id="sugar-val">50g</span></label>
+<input type="range" id="sugar" min="0" max="200" value="50" step="5">
+</div>
+<div class="control">
+<label>Protein Level <span class="value" id="protein-val">80g</span></label>
+<input type="range" id="protein" min="0" max="200" value="80" step="5">
+</div>
+<div class="control">
+<label>Fiber Level <span class="value" id="fiber-val">30g</span></label>
+<input type="range" id="fiber" min="0" max="100" value="30" step="5">
+</div>
+<h2>Visual Options</h2>
+<div class="control">
+<label>Blood Flow Speed <span class="value" id="flow-val">100%</span></label>
+<input type="range" id="flow" min="20" max="200" value="100" step="10">
+</div>
+<div class="control">
+<label>White Blood Cells <span class="value" id="wbc-val">50</span></label>
+<input type="range" id="wbc" min="10" max="200" value="50" step="10">
+</div>
+<div class="control">
+<label>Bacteria Count <span class="value" id="bacteria-val">20</span></label>
+<input type="range" id="bacteria" min="0" max="100" value="20" step="5">
+</div>
+<button id="reset">Reset to Default</button>
+</div>
+<div id="canvas-container">
+<canvas id="canvas"></canvas>
+<div id="stats">
+<div><span class="stat-label">Heart Rate:</span><span class="stat-value" id="hr">72 bpm</span></div>
+<div><span class="stat-label">Blood Pressure:</span><span class="stat-value" id="bp">120/80</span></div>
+<div><span class="stat-label">Oxygen Level:</span><span class="stat-value" id="o2">98%</span></div>
+<div><span class="stat-label">Energy:</span><span class="stat-value" id="energy">85%</span></div>
+</div>
+</div>
+</div>
+
+<script>
+const c = document.getElementById('canvas');
+const ctx = c.getContext('2d');
+const w = c.width = window.innerWidth - 280;
+const h = c.height = window.innerHeight;
+
+// State
+let state = {
+  temp: 37, fat: 15, hydro: 70, sugar: 50, protein: 80, fiber: 30,
+  flow: 100, wbc: 50, bacteria: 20
+};
+
+// Particles
+let redCells = [], whiteCells = [], bacteria = [], veins = [];
+
+// Create vein network
+function initVeins() {
+  veins = [];
+  const cx = w/2, cy = h/2;
+  for(let i = 0; i < 8; i++) {
+    const angle = (Math.PI * 2 / 8) * i;
+    veins.push({
+      x: cx, y: cy,
+      ex: cx + Math.cos(angle) * 300,
+      ey: cy + Math.sin(angle) * 300,
+      width: 3 + Math.random() * 2
+    });
+  }
+}
+
+// Initialize particles
+function initParticles() {
+  redCells = [];
+  whiteCells = [];
+  bacteria = [];
+  
+  for(let i = 0; i < 200; i++) {
+    redCells.push({
+      x: Math.random() * w,
+      y: Math.random() * h,
+      vx: (Math.random() - 0.5) * 2,
+      vy: (Math.random() - 0.5) * 2,
+      r: 3 + Math.random() * 2,
+      phase: Math.random() * Math.PI * 2
+    });
+  }
+  
+  updateCellCounts();
+}
+
+function updateCellCounts() {
+  whiteCells = [];
+  bacteria = [];
+  
+  for(let i = 0; i < state.wbc; i++) {
+    whiteCells.push({
+      x: Math.random() * w,
+      y: Math.random() * h,
+      vx: (Math.random() - 0.5) * 1.5,
+      vy: (Math.random() - 0.5) * 1.5,
+      r: 5 + Math.random() * 3,
+      target: null
+    });
+  }
+  
+  for(let i = 0; i < state.bacteria; i++) {
+    bacteria.push({
+      x: Math.random() * w,
+      y: Math.random() * h,
+      vx: (Math.random() - 0.5) * 3,
+      vy: (Math.random() - 0.5) * 3,
+      r: 2 + Math.random() * 2,
+      type: Math.floor(Math.random() * 3)
+    });
+  }
+}
+
+// Update stats
+function updateStats() {
+  const tempEffect = Math.max(0, (state.temp - 37) * 5);
+  const fatEffect = state.fat / 100;
+  const hydroEffect = state.hydro / 100;
+  
+  const hr = Math.round(72 + tempEffect + (1 - hydroEffect) * 20 - fatEffect * 10);
+  const systolic = Math.round(120 + tempEffect * 2 + fatEffect * 30);
+  const diastolic = Math.round(80 + tempEffect + fatEffect * 15);
+  const o2 = Math.round(Math.min(100, 95 + hydroEffect * 5 - fatEffect * 5));
+  const energy = Math.round((state.protein * 0.3 + state.sugar * 0.4 + hydroEffect * 30));
+  
+  document.getElementById('hr').textContent = hr + ' bpm';
+  document.getElementById('bp').textContent = systolic + '/' + diastolic;
+  document.getElementById('o2').textContent = o2 + '%';
+  document.getElementById('energy').textContent = Math.min(100, energy) + '%';
+}
+
+// Draw body
+function drawBody() {
+  const cx = w/2, cy = h/2;
+  const bodyWidth = 120 + state.fat * 2;
+  const bodyHeight = 280 + state.fat * 1.5;
+  
+  // Body outline
+  ctx.fillStyle = `rgba(255, 200, 180, ${0.1 + state.hydro/1000})`;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, bodyWidth, bodyHeight, 0, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Fat layer
+  if(state.fat > 15) {
+    ctx.fillStyle = `rgba(255, 220, 100, ${(state.fat - 15) / 100})`;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, bodyWidth + 5, bodyHeight + 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// Draw veins
+function drawVeins() {
+  const constriction = state.temp < 36 ? (36 - state.temp) * 0.3 : 0;
+  
+  veins.forEach(v => {
+    const w = v.width * (1 - constriction);
+    ctx.strokeStyle = `rgba(150, 30, 30, ${0.3 + state.hydro/300})`;
+    ctx.lineWidth = w;
+    ctx.beginPath();
+    ctx.moveTo(v.x, v.y);
+    ctx.lineTo(v.ex, v.ey);
+    ctx.stroke();
+    
+    // Capillaries
+    ctx.strokeStyle = `rgba(180, 50, 50, ${0.15})`;
+    ctx.lineWidth = w * 0.3;
+    for(let i = 0; i < 5; i++) {
+      const t = i / 5;
+      const bx = v.x + (v.ex - v.x) * t;
+      const by = v.y + (v.ey - v.y) * t;
+      const angle = Math.atan2(v.ey - v.y, v.ex - v.x) + Math.PI/2;
+      ctx.beginPath();
+      ctx.moveTo(bx, by);
+      ctx.lineTo(bx + Math.cos(angle) * 30, by + Math.sin(angle) * 30);
+      ctx.stroke();
+    }
+  });
+}
+
+// Update and draw particles
+function updateParticles() {
+  const speed = state.flow / 100;
+  
+  // Red blood cells
+  redCells.forEach(cell => {
+    cell.x += cell.vx * speed;
+    cell.y += cell.vy * speed;
+    cell.phase += 0.05;
+    
+    if(cell.x < 0 || cell.x > w) cell.vx *= -1;
+    if(cell.y < 0 || cell.y > h) cell.vy *= -1;
+    
+    ctx.fillStyle = `rgba(220, ${30 + Math.sin(cell.phase) * 20}, 30, 0.8)`;
+    ctx.beginPath();
+    ctx.arc(cell.x, cell.y, cell.r, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  
+  // White blood cells
+  whiteCells.forEach(cell => {
+    // Chase bacteria
+    if(bacteria.length > 0) {
+      const closest = bacteria.reduce((min, b) => {
+        const d = Math.hypot(b.x - cell.x, b.y - cell.y);
+        return d < min.dist ? {b, dist: d} : min;
+      }, {b: null, dist: Infinity});
+      
+      if(closest.dist < 150) {
+        const dx = closest.b.x - cell.x;
+        const dy = closest.b.y - cell.y;
+        const d = Math.hypot(dx, dy);
+        cell.vx += (dx / d) * 0.1;
+        cell.vy += (dy / d) * 0.1;
+      }
+    }
+    
+    cell.x += cell.vx;
+    cell.y += cell.vy;
+    
+    if(cell.x < 0 || cell.x > w) cell.vx *= -1;
+    if(cell.y < 0 || cell.y > h) cell.vy *= -1;
+    
+    cell.vx *= 0.98;
+    cell.vy *= 0.98;
+    
+    ctx.fillStyle = 'rgba(200, 200, 255, 0.6)';
+    ctx.beginPath();
+    ctx.arc(cell.x, cell.y, cell.r, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Nucleus
+    ctx.fillStyle = 'rgba(100, 100, 200, 0.8)';
+    ctx.beginPath();
+    ctx.arc(cell.x, cell.y, cell.r * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  
+  // Bacteria
+  bacteria.forEach((b, i) => {
+    b.x += b.vx;
+    b.y += b.vy;
+    
+    if(b.x < 0 || b.x > w) b.vx *= -1;
+    if(b.y < 0 || b.y > h) b.vy *= -1;
+    
+    // Check collision with white cells
+    for(let wbc of whiteCells) {
+      if(Math.hypot(wbc.x - b.x, wbc.y - b.y) < wbc.r + b.r) {
+        bacteria.splice(i, 1);
+        return;
+      }
+    }
+    
+    const colors = ['#4a4', '#a44', '#44a'];
+    ctx.fillStyle = colors[b.type];
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Flagella
+    ctx.strokeStyle = colors[b.type];
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(b.x, b.y);
+    ctx.lineTo(b.x - b.vx * 2, b.y - b.vy * 2);
+    ctx.stroke();
+  });
+}
+
+// Animation loop
+function animate() {
+  ctx.fillStyle = 'rgba(5, 5, 5, 0.3)';
+  ctx.fillRect(0, 0, w, h);
+  
+  drawBody();
+  drawVeins();
+  updateParticles();
+  
+  requestAnimationFrame(animate);
+}
+
+// Event listeners
+const inputs = ['temp', 'fat', 'hydro', 'sugar', 'protein', 'fiber', 'flow', 'wbc', 'bacteria'];
+inputs.forEach(id => {
+  const el = document.getElementById(id);
+  const val = document.getElementById(id + '-val');
+  el.addEventListener('input', e => {
+    state[id] = parseFloat(e.target.value);
+    const suffix = id === 'temp' ? '°C' : id.includes('Level') || ['sugar','protein','fiber'].includes(id) ? 'g' : '%';
+    val.textContent = e.target.value + suffix;
+    
+    if(id === 'wbc' || id === 'bacteria') updateCellCounts();
+    updateStats();
+  });
+});
+
+document.getElementById('reset').addEventListener('click', () => {
+  state = {temp: 37, fat: 15, hydro: 70, sugar: 50, protein: 80, fiber: 30, flow: 100, wbc: 50, bacteria: 20};
+  inputs.forEach(id => {
+    document.getElementById(id).value = state[id];
+    const suffix = id === 'temp' ? '°C' : ['sugar','protein','fiber'].includes(id) ? 'g' : '%';
+    document.getElementById(id + '-val').textContent = state[id] + suffix;
+  });
+  updateCellCounts();
+  updateStats();
+});
+
+// Initialize
+initVeins();
+initParticles();
+updateStats();
+animate();
+</script>
+</body>
+</html>
